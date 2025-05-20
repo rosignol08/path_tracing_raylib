@@ -93,6 +93,7 @@ int main(void) {
 
     // Chargement du shader de raytracing
     Shader shader = LoadShader(0, "raytest.fs");
+    Shader denoiser_shader = LoadShader(0, "denoiser.fs");
     
     // Récupération des emplacements des uniformes dans le shader
     int viewEyeLoc = GetShaderLocation(shader, "viewEye");
@@ -119,6 +120,10 @@ int main(void) {
     float runTime = 0.0f;
     
     DisableCursor();  // Limite le curseur à l'intérieur de la fenêtre
+
+    //la render texture pour appliquer le post process shader
+    RenderTexture2D target = LoadRenderTexture(screenWidth, screenHeight);
+
     SetTargetFPS(600); // Limite les FPS à 60
     
     // Boucle principale du jeu
@@ -220,15 +225,49 @@ int main(void) {
         }
         
         // Dessin
-        BeginDrawing();
-            ClearBackground(BLACK);
+        BeginTextureMode(target);       // Enable drawing to texture
+                          // End drawing to texture (now we have a texture available for next passes)
+        
+        //BeginDrawing();
+        //BeginDrawing(); // Start 3d mode drawing
+            //ClearBackground(BLACK);
             
             // On dessine simplement un rectangle plein écran blanc,
             // l'image est générée dans le shader de raytracing
             BeginShaderMode(shader);
                 DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), WHITE);
             EndShaderMode();
+            //EndDrawing();
             
+        //EndDrawing();
+        
+        EndTextureMode();
+
+        BeginDrawing();
+            ClearBackground(RAYWHITE);  // Clear screen background
+
+            //pour afficher avec le shader de denoising
+            //BeginShaderMode(denoiser_shader);
+            //    // NOTE: Render texture must be y-flipped due to default OpenGL coordinates (left-bottom)
+            //    DrawTextureRec(target.texture, (Rectangle){ 0, 0, (float)target.texture.width, (float)-target.texture.height }, (Vector2){ 0, 0 }, WHITE);
+            //EndShaderMode();
+            // Activer le shader de débruitage
+        BeginShaderMode(denoiser_shader);
+            // Passer les uniformes nécessaires au shader de débruitage
+            int resolutionLoc = GetShaderLocation(denoiser_shader, "u_resolution");
+            float resolution[2] = { (float)GetScreenWidth(), (float)GetScreenHeight() };
+            SetShaderValue(denoiser_shader, resolutionLoc, resolution, SHADER_UNIFORM_VEC2);
+
+            int timeLoc = GetShaderLocation(denoiser_shader, "u_time");
+            SetShaderValue(denoiser_shader, timeLoc, &runTime, SHADER_UNIFORM_FLOAT);
+
+            int denoiseStrengthLoc = GetShaderLocation(denoiser_shader, "u_denoiseStrength");
+            float denoiseStrength = 3.0f; // Ajustez cette valeur selon vos besoins
+            SetShaderValue(denoiser_shader, denoiseStrengthLoc, &denoiseStrength, SHADER_UNIFORM_FLOAT);
+
+            // Dessiner la texture avec le shader de débruitage
+            DrawTextureRec(target.texture, (Rectangle){ 0, 0, (float)target.texture.width, (float)-target.texture.height }, (Vector2){ 0, 0 }, WHITE);
+        EndShaderMode();
             // Affichage d'informations
             DrawFPS(10, 10);
             DrawText(TextFormat("Light Intensity: %.1f", lightIntensity), 10, 30, 20, WHITE);
@@ -241,6 +280,8 @@ int main(void) {
     
     // Nettoyage
     UnloadShader(shader);
+    UnloadShader(denoiser_shader);
+    UnloadRenderTexture(target); // Unload render texture
     CloseWindow();
     
     return 0;
