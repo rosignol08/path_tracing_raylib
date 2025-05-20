@@ -9,7 +9,7 @@ uniform float u_time;
 uniform float u_denoiseStrength;
 
 vec3 encodePalYuv(vec3 rgb) {
-    rgb = pow(rgb, vec3(2.0)); // gamma correction
+    //rgb = pow(rgb, vec3(2.0)); // gamma correction
     return vec3(
         dot(rgb, vec3(0.299, 0.587, 0.114)),
         dot(rgb, vec3(-0.14713, -0.28886, 0.436)),
@@ -23,7 +23,15 @@ vec3 decodePalYuv(vec3 yuv) {
         dot(yuv, vec3(1., -0.39465, -0.58060)),
         dot(yuv, vec3(1., 2.03211, 0.))
     );
-    return pow(rgb, vec3(1.0 / 2.0)); // gamma correction
+    // Appliquer une correction gamma plus douce
+    //rgb = pow(rgb, vec3(1.0 / 1.2));
+//
+    //// Ajuster le contraste
+    //float contrast = 2.2; // Ajustez cette valeur pour augmenter ou diminuer le contraste
+    //rgb = (rgb - 0.5) * contrast + 0.5;
+//
+    return rgb;
+    //return pow(rgb, vec3(1.0 / 2.0)); // gamma correction
 }
 
 void main() {
@@ -153,9 +161,18 @@ void main() {
     float clampAmount = dot(diff, diff);
 
     mixRate += clampAmount * 4.0;
-    mixRate = clamp(mixRate, 0.05, 0.5);
+    mixRate = clamp(mixRate, 0.01, 0.5);
 
     antialiased = decodePalYuv(antialiased);
+//colorOutput = vec4(antialiased, 1.0);  // Pour l'affichage
+//temporalOutput = vec4(0.0, 0.0, 0.0, mixRate);  // Pour le feedback temporel
 
-    gl_FragColor = vec4(antialiased, mixRate);
+
+
+
+    //gl_FragColor = vec4(antialiased, mixRate);
+    gl_FragColor = vec4(antialiased, 1.0);
+    //gl_FragColor = vec4(vec3(mixRate), 1.0);
+
+
 }

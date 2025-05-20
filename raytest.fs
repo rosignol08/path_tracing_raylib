@@ -1,5 +1,5 @@
 #define MAX_SPHERES 8
-#define MAX_BOUNCES 10  // Augmenté pour plus de réalisme
+#define MAX_BOUNCES 5  // Augmenté pour plus de réalisme
 #define MAX_SAMPLES 8  // Anti-aliasing
 #define PI 3.14159265
 

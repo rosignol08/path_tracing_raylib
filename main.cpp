@@ -123,6 +123,7 @@ int main(void) {
 
     //la render texture pour appliquer le post process shader
     RenderTexture2D target = LoadRenderTexture(screenWidth, screenHeight);
+    RenderTexture2D history = LoadRenderTexture(screenWidth, screenHeight);
 
     SetTargetFPS(600); // Limite les FPS à 60
     
@@ -243,8 +244,8 @@ int main(void) {
         
         EndTextureMode();
 
-        BeginDrawing();
-            ClearBackground(RAYWHITE);  // Clear screen background
+        //BeginDrawing();
+            //ClearBackground(RAYWHITE);  // Clear screen background
 
             //pour afficher avec le shader de denoising
             //BeginShaderMode(denoiser_shader);
@@ -252,6 +253,7 @@ int main(void) {
             //    DrawTextureRec(target.texture, (Rectangle){ 0, 0, (float)target.texture.width, (float)-target.texture.height }, (Vector2){ 0, 0 }, WHITE);
             //EndShaderMode();
             // Activer le shader de débruitage
+            BeginTextureMode(history);
         BeginShaderMode(denoiser_shader);
             // Passer les uniformes nécessaires au shader de débruitage
             int resolutionLoc = GetShaderLocation(denoiser_shader, "u_resolution");
@@ -262,12 +264,21 @@ int main(void) {
             SetShaderValue(denoiser_shader, timeLoc, &runTime, SHADER_UNIFORM_FLOAT);
 
             int denoiseStrengthLoc = GetShaderLocation(denoiser_shader, "u_denoiseStrength");
-            float denoiseStrength = 3.0f; // Ajustez cette valeur selon vos besoins
+            float denoiseStrength = 6.0f; // Force le débruitage
             SetShaderValue(denoiser_shader, denoiseStrengthLoc, &denoiseStrength, SHADER_UNIFORM_FLOAT);
+
+            // Passer la texture history (ancienne frame) au shader (il faut ajouter uniform sampler2D u_history)
+            int historyLoc = GetShaderLocation(denoiser_shader, "u_history");
+            SetShaderValueTexture(denoiser_shader, historyLoc, history.texture);
+
 
             // Dessiner la texture avec le shader de débruitage
             DrawTextureRec(target.texture, (Rectangle){ 0, 0, (float)target.texture.width, (float)-target.texture.height }, (Vector2){ 0, 0 }, WHITE);
         EndShaderMode();
+        EndTextureMode();
+        BeginDrawing();
+        ClearBackground(RAYWHITE);
+        DrawTextureRec(history.texture, (Rectangle){ 0, 0, (float)history.texture.width, (float)-history.texture.height }, (Vector2){ 0, 0 }, WHITE);
             // Affichage d'informations
             DrawFPS(10, 10);
             DrawText(TextFormat("Light Intensity: %.1f", lightIntensity), 10, 30, 20, WHITE);
