@@ -1,3 +1,4 @@
+#version 330
 #define MAX_SPHERES 8
 #define MAX_BOUNCES 5  // Augmenté pour plus de réalisme
 #define MAX_SAMPLES 8  // Anti-aliasing
@@ -78,7 +79,7 @@ vec3 sampleHemisphere(vec3 normal, vec3 pos, float seed) {
 }
 
 // Réflexion spéculaire avec perturbation pour rugosité
-vec3 reflect(vec3 incident, vec3 normal, float roughness, vec3 pos, float seed) {
+vec3 reflect_custom(vec3 incident, vec3 normal, float roughness, vec3 pos, float seed) {
     vec3 reflected = reflect(incident, normal);
     
     if (roughness > 0.0) {
@@ -111,7 +112,7 @@ vec3 refract(vec3 incident, vec3 normal, float ior, float roughness, vec3 pos, f
     // Réflexion totale interne
     if (sinT2 > 1.0) {
         reflectionChance = 1.0;
-        return reflect(incident, n, roughness, pos, seed);
+        return reflect_custom(incident, n, roughness, pos, seed);
     }
     
     float cosT = sqrt(1.0 - sinT2);
@@ -123,7 +124,7 @@ vec3 refract(vec3 incident, vec3 normal, float ior, float roughness, vec3 pos, f
     reflectionChance = fresnel;
     
     if (random(pos, seed + 4.269) < fresnel) {
-        return reflect(incident, n, roughness, pos, seed);
+        return reflect_custom(incident, n, roughness, pos, seed);
     }
     
     vec3 refracted = normalize(eta * incident + (eta * cosI - cosT) * n);
@@ -357,7 +358,7 @@ vec3 trace(vec3 ro, vec3 rd, float seed) {
         }
         else if (mat.type == MAT_METALLIC) {
             // Surface métallique: réflexion
-            rd = reflect(rd, n, mat.roughness, hit, seed + float(bounce) * 2.71828);
+            rd = reflect_custom(rd, n, mat.roughness, hit, seed + float(bounce) * 2.71828);
             ro = hit + n * 0.001;
             throughput *= mat.albedo;
         }
