@@ -89,7 +89,7 @@ void main() {
     kernel[22] = 3.0/128.0;
     kernel[23] = 1.0/64.0;
     kernel[24] = 1.0/256.0;
-
+    
     vec4 sum = vec4(0.0);
     float c_phi = 1.0;
     float n_phi = 0.5;

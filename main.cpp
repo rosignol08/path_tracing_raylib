@@ -93,7 +93,11 @@ int main(void) {
 
     // Chargement du shader de raytracing
     Shader shader = LoadShader(0, "raytest.fs");
-    Shader denoiser_shader = LoadShader(0, "denoiser.fs");
+    //Shader denoiser_shader = LoadShader(0, "denoiser.fs");
+
+    //test denoiser plusieurs passes
+    Shader denoise_shader = LoadShader(0, "denoise.fs");
+    Shader taa_shader = LoadShader(0, "taa.fs");
     
     // Récupération des emplacements des uniformes dans le shader
     int viewEyeLoc = GetShaderLocation(shader, "viewEye");
@@ -123,9 +127,18 @@ int main(void) {
 
     //la render texture pour appliquer le post process shader
     RenderTexture2D target = LoadRenderTexture(screenWidth, screenHeight);
-    RenderTexture2D history = LoadRenderTexture(screenWidth, screenHeight);
+    //RenderTexture2D history = LoadRenderTexture(screenWidth, screenHeight);
 
-    SetTargetFPS(600); // Limite les FPS à 60
+    //pour le shader de denoising
+    RenderTexture2D renderNoisy = LoadRenderTexture(screenWidth, screenHeight);
+    RenderTexture2D renderNormals = LoadRenderTexture(screenWidth, screenHeight);
+    RenderTexture2D renderHistory = LoadRenderTexture(screenWidth, screenHeight);
+    RenderTexture2D denoiseTarget = LoadRenderTexture(screenWidth, screenHeight);
+    RenderTexture2D taaOutput = LoadRenderTexture(screenWidth, screenHeight);
+    
+    int frameCounter = 0;
+
+    SetTargetFPS(60); // Limite les FPS à 60
     
     // Boucle principale du jeu
     while (!WindowShouldClose()) {
@@ -218,6 +231,20 @@ int main(void) {
         SetShaderValue(shader, lightColorLoc, &lightColor, SHADER_UNIFORM_VEC3);
         SetShaderValue(shader, lightIntensityLoc, &lightIntensity, SHADER_UNIFORM_FLOAT);
         
+        //liaison entre les textures et les shaders
+        SetShaderValueTexture(denoise_shader, GetShaderLocation(denoise_shader, "renderNoisy"), renderNoisy.texture);
+        SetShaderValueTexture(denoise_shader, GetShaderLocation(denoise_shader, "renderNormals"), renderNormals.texture);
+        SetShaderValueTexture(denoise_shader, GetShaderLocation(denoise_shader, "renderHistory"), renderHistory.texture);
+
+        //pour le taa shader
+        SetShaderValue(taa_shader, GetShaderLocation(taa_shader, "resolution"), resolution, SHADER_UNIFORM_VEC2);
+        SetShaderValue(taa_shader, GetShaderLocation(taa_shader, "time"), &runTime, SHADER_UNIFORM_FLOAT);
+        SetShaderValue(taa_shader, GetShaderLocation(taa_shader, "frame"), &frameCounter, SHADER_UNIFORM_INT);
+
+        SetShaderValueTexture(taa_shader, GetShaderLocation(taa_shader, "currentFrame"), denoiseTarget.texture);
+        SetShaderValueTexture(taa_shader, GetShaderLocation(taa_shader, "historyFrame"), renderHistory.texture);
+
+
         // Vérification si la fenêtre est redimensionnée
         if (IsWindowResized()) {
             resolution[0] = (float)GetScreenWidth();
@@ -226,7 +253,7 @@ int main(void) {
         }
         
         // Dessin
-        BeginTextureMode(target);       // Enable drawing to texture
+        BeginTextureMode(renderNoisy);       // Enable drawing to texture
                           // End drawing to texture (now we have a texture available for next passes)
         
         //BeginDrawing();
@@ -244,55 +271,113 @@ int main(void) {
         
         EndTextureMode();
 
-        //BeginDrawing();
-            //ClearBackground(RAYWHITE);  // Clear screen background
 
-            //pour afficher avec le shader de denoising
-            //BeginShaderMode(denoiser_shader);
-            //    // NOTE: Render texture must be y-flipped due to default OpenGL coordinates (left-bottom)
-            //    DrawTextureRec(target.texture, (Rectangle){ 0, 0, (float)target.texture.width, (float)-target.texture.height }, (Vector2){ 0, 0 }, WHITE);
-            //EndShaderMode();
-            // Activer le shader de débruitage
-            BeginTextureMode(history);
-        BeginShaderMode(denoiser_shader);
-            // Passer les uniformes nécessaires au shader de débruitage
-            int resolutionLoc = GetShaderLocation(denoiser_shader, "u_resolution");
-            float resolution[2] = { (float)GetScreenWidth(), (float)GetScreenHeight() };
-            SetShaderValue(denoiser_shader, resolutionLoc, resolution, SHADER_UNIFORM_VEC2);
+            BeginTextureMode(denoiseTarget); // ← on dessine dans denoiseTarget (frame courante débruitée)
+                BeginShaderMode(denoise_shader);
+                    // Uniformes
+                    float resolution[2] = { (float)GetScreenWidth(), (float)GetScreenHeight() };
+                    SetShaderValue(denoise_shader, GetShaderLocation(denoise_shader, "resolution"), resolution, SHADER_UNIFORM_VEC2);
 
-            int timeLoc = GetShaderLocation(denoiser_shader, "u_time");
-            SetShaderValue(denoiser_shader, timeLoc, &runTime, SHADER_UNIFORM_FLOAT);
+                    SetShaderValue(denoise_shader, GetShaderLocation(denoise_shader, "time"), &runTime, SHADER_UNIFORM_FLOAT);
+                    SetShaderValue(denoise_shader, GetShaderLocation(denoise_shader, "frame"), &frameCounter, SHADER_UNIFORM_INT);
 
-            int denoiseStrengthLoc = GetShaderLocation(denoiser_shader, "u_denoiseStrength");
-            float denoiseStrength = 6.0f; // Force le débruitage
-            SetShaderValue(denoiser_shader, denoiseStrengthLoc, &denoiseStrength, SHADER_UNIFORM_FLOAT);
+                    float denoiseStrength = 1.0f;
+                    SetShaderValue(denoise_shader, GetShaderLocation(denoise_shader, "u_denoiseStrength"), &denoiseStrength, SHADER_UNIFORM_FLOAT);
 
-            // Passer la texture history (ancienne frame) au shader (il faut ajouter uniform sampler2D u_history)
-            int historyLoc = GetShaderLocation(denoiser_shader, "u_history");
-            SetShaderValueTexture(denoiser_shader, historyLoc, history.texture);
+                    // Textures (attention aux noms !)
+                    SetShaderValueTexture(denoise_shader, GetShaderLocation(denoise_shader, "renderNoisy"), renderNoisy.texture);
+                    SetShaderValueTexture(denoise_shader, GetShaderLocation(denoise_shader, "renderNormals"), renderNormals.texture);
+                    SetShaderValueTexture(denoise_shader, GetShaderLocation(denoise_shader, "renderHistory"), renderHistory.texture);
 
+                    // Dessiner un quad plein écran pour appliquer le shader
+                    DrawTexturePro(
+                        renderNoisy.texture,                       // source texture (image bruitée)
+                        (Rectangle){ 0, 0, (float)screenWidth, -(float)screenHeight },
+                        (Rectangle){ 0, 0, (float)screenWidth, (float)screenHeight },
+                        (Vector2){ 0, 0 },
+                        0.0f,
+                        WHITE
+                    );
+                EndShaderMode();
+            EndTextureMode();
 
-            // Dessiner la texture avec le shader de débruitage
-            DrawTextureRec(target.texture, (Rectangle){ 0, 0, (float)target.texture.width, (float)-target.texture.height }, (Vector2){ 0, 0 }, WHITE);
-        EndShaderMode();
-        EndTextureMode();
-        BeginDrawing();
-        ClearBackground(RAYWHITE);
-        DrawTextureRec(history.texture, (Rectangle){ 0, 0, (float)history.texture.width, (float)-history.texture.height }, (Vector2){ 0, 0 }, WHITE);
-            // Affichage d'informations
-            DrawFPS(10, 10);
-            DrawText(TextFormat("Light Intensity: %.1f", lightIntensity), 10, 30, 20, WHITE);
-            DrawText("Controls:", 10, GetScreenHeight() - 90, 20, WHITE);
-            DrawText("  Mouse Right - Rotate camera", 10, GetScreenHeight() - 70, 20, WHITE);
-            DrawText("  Mouse Wheel - Zoom in/out", 10, GetScreenHeight() - 50, 20, WHITE);
-            DrawText("  H/K/U/J/Y/I - Move light, +/- Change intensity", 10, GetScreenHeight() - 30, 20, WHITE);
-        EndDrawing();
+// Application du TAA à la texture de sortie finale
+BeginTextureMode(taaOutput);  // Capture le résultat du TAA dans taaOutput
+    BeginShaderMode(taa_shader);
+        // Passer la texture courante (débruitée) et la frame précédente
+        SetShaderValueTexture(taa_shader, GetShaderLocation(taa_shader, "currentFrame"), denoiseTarget.texture);
+        SetShaderValueTexture(taa_shader, GetShaderLocation(taa_shader, "historyFrame"), renderHistory.texture);
+
+        // Uniformes nécessaires
+        SetShaderValue(taa_shader, GetShaderLocation(taa_shader, "time"), &runTime, SHADER_UNIFORM_FLOAT);
+        SetShaderValue(taa_shader, GetShaderLocation(taa_shader, "frame"), &frameCounter, SHADER_UNIFORM_INT);
+
+        DrawTexturePro(
+            denoiseTarget.texture,
+            (Rectangle){ 0, 0, (float)screenWidth, -(float)screenHeight },
+            (Rectangle){ 0, 0, (float)screenWidth, (float)screenHeight },
+            (Vector2){ 0, 0 },
+            0.0f,
+            WHITE
+        );
+    EndShaderMode();
+EndTextureMode();
+//pour enlever les artefacts de la frame précédente
+if (frameCounter % 3 == 0) {
+    BeginTextureMode(renderHistory);
+        // On écrase totalement l'historique avec l'image courante (nettoyée)
+        DrawTextureRec(
+            denoiseTarget.texture,
+            (Rectangle){ 0, 0, (float)screenWidth, -(float)screenHeight },
+            (Vector2){ 0, 0 },
+            WHITE
+        );
+    EndTextureMode();
+}
+
+            //pour la derniere image
+            BeginTextureMode(renderHistory);
+                DrawTextureRec(
+                        taaOutput.texture,
+                        (Rectangle){ 0, 0, (float)screenWidth, -(float)screenHeight },
+                        (Vector2){ 0, 0 },
+                        WHITE
+                    );
+                EndTextureMode();
+                
+BeginDrawing();
+    //ClearBackground(BLACK); //faut pas mettre ça sinon ça assombrit l'image
+
+    // Dessiner le résultat du TAA
+    DrawTextureRec(
+        taaOutput.texture,
+        (Rectangle){ 0, 0, (float)screenWidth, -(float)screenHeight },
+        (Vector2){ 0, 0 },
+        WHITE
+    );
+    
+    // Affichage d'informations
+    DrawFPS(10, 10);
+    DrawText(TextFormat("Light Intensity: %.1f", lightIntensity), 10, 30, 20, WHITE);
+    DrawText("Controls:", 10, GetScreenHeight() - 90, 20, WHITE);
+    DrawText("  Mouse Right - Rotate camera", 10, GetScreenHeight() - 70, 20, WHITE);
+    DrawText("  Mouse Wheel - Zoom in/out", 10, GetScreenHeight() - 50, 20, WHITE);
+    DrawText("  H/K/U/J/Y/I - Move light, +/- Change intensity", 10, GetScreenHeight() - 30, 20, WHITE);
+EndDrawing();
+
+        frameCounter++;
+
     }
     
     // Nettoyage
     UnloadShader(shader);
-    UnloadShader(denoiser_shader);
+    UnloadShader(denoise_shader);
+    UnloadShader(taa_shader);
     UnloadRenderTexture(target); // Unload render texture
+    UnloadRenderTexture(renderNoisy);
+    UnloadRenderTexture(renderNormals);
+    UnloadRenderTexture(renderHistory);
+    UnloadRenderTexture(denoiseTarget);
     CloseWindow();
     
     return 0;
