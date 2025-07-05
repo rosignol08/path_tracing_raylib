@@ -27,7 +27,7 @@ float distance_cam = 5.0f;
 // Variable pour activer/désactiver la rotation
 bool isRotating = false;
 
-#define MAX_SPHERES 8
+#define MAX_SPHERES 2
 #define MAX_BLOCKS 6
 
 // Structure pour les sphères
@@ -55,13 +55,13 @@ typedef struct {
 // Données des sphères
 Sphere spheres[MAX_SPHERES] = {
     {{0.0f, 0.0f, 0.0f}, 1.0f},     // Sphère centrale
-    {{-2.5f, 0.0f, 0.0f}, 1.0f},    // Sphère à gauche
-    {{2.5f, 0.0f, 0.0f}, 1.0f},     // Sphère à droite
-    {{0.0f, -1001.0f, 0.0f}, 1000.0f}, // Sol (grosse sphère en dessous)
-    {{0.0f, 0.0f, -2.5f}, 1.0f},    // Sphère derrière
-    {{0.0f, 0.0f, 2.5f}, 1.0f},     // Sphère devant
-    {{-1.5f, 0.0f, -1.5f}, 0.5f},   // Petite sphère
     {{1.5f, 0.0f, 1.5f}, 0.5f}      // Petite sphère
+    //{{-2.5f, 0.0f, 0.0f}, 1.0f},    // Sphère à gauche
+    //{{2.5f, 0.0f, 0.0f}, 1.0f},     // Sphère à droite
+    //{{0.0f, -1001.0f, 0.0f}, 1000.0f}, // Sol (grosse sphère en dessous)
+    //{{0.0f, 0.0f, -2.5f}, 1.0f},    // Sphère derrière
+    //{{0.0f, 0.0f, 2.5f}, 1.0f},     // Sphère devant
+    //{{-1.5f, 0.0f, -1.5f}, 0.5f},   // Petite sphère
 };
 
 // Matériaux correspondants
@@ -74,13 +74,13 @@ Sphere spheres[MAX_SPHERES] = {
 
 Material2 materials[MAX_SPHERES] = {
     {4, 0.0f, 1.0f, 0.0f, {1.0f, 1.0f, 1.0f}, 0.0f},    // Balle miroir
-    {1, 0.1f, 1.0f, 0.0f, {0.8f, 0.8f, 0.9f}, 0.0f},    // Métal bleuté
-    {2, 0.0f, 1.5f, 0.0f, {0.9f, 0.9f, 0.9f}, 0.0f},    // Verre
-    {0, 0.5f, 1.0f, 0.0f, {0.8f, 0.8f, 0.8f}, 0.0f},    // Sol gris diffus
-    {0, 0.2f, 1.0f, 0.0f, {0.9f, 0.3f, 0.3f}, 0.0f},    // Rouge diffus
-    {1, 0.2f, 1.0f, 0.0f, {0.9f, 0.6f, 0.2f}, 0.0f},    // Métal doré
-    {2, 0.1f, 1.3f, 0.0f, {0.3f, 0.7f, 0.9f}, 0.0f},    // Verre bleuté
     {3, 0.0f, 1.0f, 0.0f, {0.9f, 0.9f, 0.0f}, 0.0f}     // Jaune diffus
+    //{1, 0.1f, 1.0f, 0.0f, {0.8f, 0.8f, 0.9f}, 0.0f},    // Métal bleuté
+    //{2, 0.0f, 1.5f, 0.0f, {0.9f, 0.9f, 0.9f}, 0.0f},    // Verre
+    //{0, 0.5f, 1.0f, 0.0f, {0.8f, 0.8f, 0.8f}, 0.0f},    // Sol gris diffus
+    //{0, 0.2f, 1.0f, 0.0f, {0.9f, 0.3f, 0.3f}, 0.0f},    // Rouge diffus
+    //{1, 0.2f, 1.0f, 0.0f, {0.9f, 0.6f, 0.2f}, 0.0f},    // Métal doré
+    //{2, 0.1f, 1.3f, 0.0f, {0.3f, 0.7f, 0.9f}, 0.0f},    // Verre bleuté
 };
 
 // Dans main.cpp, ajustez la définition des murs selon vos besoins
@@ -94,12 +94,12 @@ Block blocks[MAX_BLOCKS] = {
 };
 
 Material2 materials_block[MAX_BLOCKS] = {
-    {1, 0.1f, 1.0f, 0.0f, {0.2f, 0.2f, 0.225f}, 0.0f}, // Mur gauche gris
-    {1, 0.1f, 1.0f, 0.0f, {0.2f, 0.2f, 0.225f}, 0.0f}, // Mur droit gris
-    {1, 0.1f, 1.0f, 0.0f, {0.2f, 0.2f, 0.225f}, 0.0f}, // Mur arrière gris
-    {1, 0.1f, 1.0f, 0.0f, {0.2f, 0.2f, 0.225f}, 0.0f}, // Mur avant gris
-    {1, 0.1f, 1.0f, 0.0f, {0.2f, 0.2f, 0.225f}, 0.0f}, // Mur gauche avant gris
-    {1, 0.1f, 1.0f, 0.0f, {0.2f, 0.2f, 0.225f}, 0.0f}  // Mur droit avant gris
+    {1, 0.80f, 1.0f, 0.0f, {0.2f, 0.2f, 0.225f}, 0.0f}, // Mur gauche gris
+    {1, 0.80f, 1.0f, 0.0f, {0.2f, 0.2f, 0.225f}, 0.0f}, // Mur droit gris
+    {1, 0.80f, 1.0f, 0.0f, {0.2f, 0.2f, 0.225f}, 0.0f}, // Mur arrière gris
+    {1, 0.80f, 1.0f, 0.0f, {0.2f, 0.2f, 0.225f}, 0.0f}, // Mur avant gris
+    {1, 0.80f, 1.0f, 0.0f, {0.2f, 0.2f, 0.225f}, 0.0f}, // Mur gauche avant gris
+    {1, 0.80f, 1.0f, 0.0f, {0.2f, 0.2f, 0.225f}, 0.0f}  // Mur droit avant gris
 };
 
 
@@ -180,7 +180,7 @@ int main(void) {
     
     int frameCounter = 0;
 
-    SetTargetFPS(60); // Limite les FPS à 60
+    SetTargetFPS(600); // Limite les FPS à 60
     
     // Boucle principale du jeu
     while (!WindowShouldClose()) {
@@ -244,14 +244,14 @@ int main(void) {
             //materials[0].albedo.z = 0.5f + 0.5f * sinf(runTime * 0.9f + 4.0f);   // Bleu
             
             // Cycle de couleurs pour la sphère émissive (index 7)
-            materials[7].albedo.x = 0.5f + 0.5f * sinf(runTime * 0.5f + 1.0f);   // Rouge
-            materials[7].albedo.y = 0.5f + 0.5f * sinf(runTime * 0.8f + 3.0f);   // Vert
-            materials[7].albedo.z = 0.5f + 0.5f * sinf(runTime * 0.6f + 5.0f);   // Bleu
+            materials[1].albedo.x = 0.5f + 0.5f * sinf(runTime * 0.5f + 1.0f);   // Rouge
+            materials[1].albedo.y = 0.5f + 0.5f * sinf(runTime * 0.8f + 3.0f);   // Vert
+            materials[1].albedo.z = 0.5f + 0.5f * sinf(runTime * 0.6f + 5.0f);   // Bleu
             
             // Synchroniser la couleur de la lumière avec la sphère émissive
-            lightColor.x = materials[7].albedo.x;
-            lightColor.y = materials[7].albedo.y;
-            lightColor.z = materials[7].albedo.z;
+            lightColor.x = materials[1].albedo.x;
+            lightColor.y = materials[1].albedo.y;
+            lightColor.z = materials[1].albedo.z;
         }
         // Make light intensity oscillate between 0 and 2
         //lightIntensity = 1.0f + sinf(runTime * 1.5f);

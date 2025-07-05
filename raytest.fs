@@ -23,6 +23,14 @@ struct Material {
     float padding2; // Padding supplémentaire
 };
 
+struct Hit {
+    bool hit;
+    float t;
+    vec3 normal;
+    Material matId;
+    int blockId;
+};
+
 uniform vec4 spheres[MAX_SPHERES];     // xyz = position, w = rayon
 uniform Material materials[MAX_SPHERES]; // Matériaux des sphères
 uniform int sphereCount;
@@ -31,6 +39,8 @@ uniform vec3 blocks[MAX_BLOCKS]; // Positions des blocs (pour les murs)
 uniform vec3 blockSizes[MAX_BLOCKS]; // Tailles des blocs
 uniform Material materials_block[MAX_BLOCKS]; // Matériaux des murs
 uniform int blockCount;
+//pour les lumières sur les murs
+uniform vec3 emission_block[MAX_BLOCKS]; // intensité RGB de lumière émise par le bloc
 
 uniform vec3 lightPos;
 uniform vec3 lightColor;
@@ -210,6 +220,31 @@ bool intersectBox(vec3 ro, vec3 rd, vec3 boxMin, vec3 boxMax, out float t, out v
     return true;
 }
 
+Hit intersectScene(vec3 ro, vec3 rd) {
+    Hit closestHit;
+    closestHit.hit = false;
+    closestHit.t = 1e9;
+
+    for (int i = 0; i < blockCount; ++i) {
+        float t;
+        vec3 n;
+        vec3 boxMin = blocks[i];
+        vec3 boxMax = blocks[i] + blockSizes[i];
+
+        if (intersectBox(ro, rd, boxMin, boxMax, t, n)) {
+            if (t < closestHit.t) {
+                closestHit.hit = true;
+                closestHit.t = t;
+                closestHit.normal = n;
+                closestHit.blockId = i;
+                closestHit.matId = materials_block[i];
+            }
+        }
+    }
+
+    return closestHit;
+}
+
 // Fonction auxiliaire pour calculer l'éclairage direct
 vec3 directLight(vec3 p, vec3 n, vec3 viewDir, int matType, vec3 albedo, float roughness, float dist) {
     vec3 toLight = normalize(lightPos - p);
@@ -342,7 +377,7 @@ vec3 sampleDirectLight(vec3 p, vec3 n, vec3 viewDir, Material mat, float seed) {
                 vec3 brdf = vec3(0.0);
                 if (mat.type == MAT_DIFFUSE) {
                     brdf = mat.albedo / PI; // Lambert
-                } 
+                }
                 else if (mat.type == MAT_METALLIC) {
                     vec3 halfwayDir = normalize(toLight + viewDir);
                     float spec = pow(max(dot(n, halfwayDir), 0.0), (1.0 - mat.roughness) * 128.0 + 1.0);
@@ -359,15 +394,61 @@ vec3 sampleDirectLight(vec3 p, vec3 n, vec3 viewDir, Material mat, float seed) {
                     float spec = pow(max(dot(viewDir, reflectDir), 0.0), (1.0 - mat.roughness) * 128.0 + 1.0);
                     brdf = vec3(spec * (1.0 - mat.roughness)) / PI;
                 }
-                
-                // Ajout de la contribution lumineuse
-                contrib += brdf * materials[i].albedo * cosLight * solidAngle * lightIntensity;
+                // Calcul du PDF
+                float distance2 = dot(lightPos - p, lightPos - p);
+                float cosTheta = max(dot(toLight, -normalize(sampleOffset)), 0.0);
+                float pdf = distance2 / (cosTheta * 4.0 * PI * lightRadius * lightRadius + 0.001); // éviter /0
+
+                // Contribution lumineuse si pdf valide
+                if (pdf > 0.0) {
+                    vec3 Li = materials[i].albedo * lightIntensity;
+                    float cosLight = max(0.0, dot(n, toLight));
+                    contrib += brdf * Li * cosLight / pdf;
+                }
             }
         }
     }
     
     return contrib;
 }
+
+// Fonction hash 2D rapide pour du bruit pseudo-aléatoire
+float hash21(vec2 p) {
+    p = fract(p * vec2(123.34, 456.21));
+    p += dot(p, p + 45.32);
+    return fract(p.x * p.y);
+}
+
+float emissionPattern(vec3 hitPos, vec3 blockMin, vec3 blockMax, float time) {
+    // Coordonnées locales (0..1) sur le mur en X et Y (ou X et Z selon orientation)
+    float localX = (hitPos.x - blockMin.x) / (blockMax.x - blockMin.x);
+    float localY = (hitPos.y - blockMin.y) / (blockMax.y - blockMin.y);
+
+    // Vitesse de défilement dans chaque direction
+    vec2 speed = vec2(0.03, 0.05);
+
+    // Coordonnées animées (défilement dans x et y)
+    vec2 uv = vec2(localX, localY) + speed * time;
+
+    // Appliquer fract pour avoir un motif qui boucle sur [0,1]
+    uv = fract(uv);
+
+    // Échantillonnage du bruit
+    float noiseVal = hash21(floor(uv * 20.0)); // 20 = résolution du motif
+
+    // Seuil pour "allumer" la lumière dans certaines zones
+    float threshold = 0.8;
+
+    // Retourne 1 si bruit au-dessus du seuil, sinon 0
+    float emission = step(threshold, noiseVal);
+
+    // On peut lisser un peu la transition
+    emission = smoothstep(threshold, threshold + 0.1, noiseVal);
+
+    return emission;
+}
+
+
 
 vec3 trace(vec3 ro, vec3 rd, float seed) {
     vec3 col = vec3(0.0);
@@ -424,11 +505,22 @@ vec3 trace(vec3 ro, vec3 rd, float seed) {
 
         // Après avoir trouvé l'intersection:
         Material mat;
-        if (hitType == 0) {
-            mat = materials[hitIdx];
-        } else {
-            mat = materials_block[hitIdx];
-        }
+        if (hitType == 1) {
+    vec3 halfSize = blockSizes[hitIdx] * 0.5;
+    vec3 blockMin = blocks[hitIdx] - halfSize;
+    vec3 blockMax = blocks[hitIdx] + halfSize;
+
+    Material matBase = materials_block[hitIdx];
+    float emissionFactor = emissionPattern(hit, blockMin, blockMax, time);
+    if (emissionFactor > 0.0) {
+        matBase.type = MAT_EMISSIVE;
+        matBase.albedo = vec3(1.0);  // ou couleur désirée
+    }
+    mat = matBase;
+} else {
+    mat = materials[hitIdx];
+}
+
         
         // Si on touche une source émissive, ajouter sa contribution et terminer
         if (mat.type == MAT_EMISSIVE) {
@@ -460,10 +552,22 @@ vec3 trace(vec3 ro, vec3 rd, float seed) {
             ro = hit + n * 0.001;
             throughput *= mat.albedo;
         }
+        // Si on touche une source émissive, ajouter sa contribution et terminer
         else if (mat.type == MAT_EMISSIVE) {
-            col += throughput * mat.albedo * lightIntensity;
+            vec3 emitCol = mat.albedo;
+
+            if (hitType == 1) { // mur
+                vec3 blockMin = blocks[hitIdx] - 0.5 * blockSizes[hitIdx];
+                vec3 blockMax = blocks[hitIdx] + 0.5 * blockSizes[hitIdx];
+                float strength = emissionPattern(hit, blockMin, blockMax, time);
+                emitCol *= strength;
+            }
+
+            col += throughput * emitCol * lightIntensity;
+            //col += vec3(1.0, 0.0, 0.0); // lumière rouge vive fixe
             break;
         }
+
         else if (mat.type == MAT_GLASS) {
             // Verre: réfraction ou réflexion
             float reflChance;
@@ -489,6 +593,7 @@ vec3 trace(vec3 ro, vec3 rd, float seed) {
         // Roulette russe pour terminer prématurément les chemins à faible contribution
         if (bounce > 2) {
             float p = max(throughput.r, max(throughput.g, throughput.b));
+            p = clamp(p, 0.0, 1.0);  // Ensure p stays in valid probability range
             if (random(hit, seed + bounce * 0.77) > p) break;
             throughput /= p;
         }
@@ -509,17 +614,18 @@ void main() {
     vec3 color = vec3(0.0);
     
     // Anti-aliasing: multiplier les échantillons par pixel
+    float sqrtSamples = sqrt(float(MAX_SAMPLES));
+    float strataSize = 1.0 / sqrtSamples;
+
     for (int s = 0; s < MAX_SAMPLES; ++s) {
         // Calculer le décalage du sous-pixel pour l'anti-aliasing
-        float strataSize = 1.0 / sqrt(float(MAX_SAMPLES));
-int strataX = s % int(sqrt(float(MAX_SAMPLES)));
-int strataY = s / int(sqrt(float(MAX_SAMPLES)));
+        int strataX = s % int(sqrt(float(MAX_SAMPLES)));
+        int strataY = s / int(sqrt(float(MAX_SAMPLES)));
 
-vec2 strata = vec2(float(strataX), float(strataY)) * strataSize;
-vec2 inStrata = vec2(random(vec3(gl_FragCoord.xy, time), float(s) * 0.1),
-                     random(vec3(gl_FragCoord.xy, time), float(s) * 0.2));
+        vec2 strata = vec2(float(strataX), float(strataY)) * strataSize;
+        vec2 inStrata = vec2(random(vec3(gl_FragCoord.xy, time), float(s) * 0.1), random(vec3(gl_FragCoord.xy, time), float(s) * 0.2));
 
-vec2 jitter = strata + inStrata * strataSize - 0.5;
+        vec2 jitter = strata + inStrata * strataSize - 0.5;
         
         vec2 uv = ((gl_FragCoord.xy + jitter) * 2.0 - resolution.xy) / resolution.y;
         
