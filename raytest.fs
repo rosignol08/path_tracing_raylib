@@ -1,5 +1,6 @@
 #version 330
 #define MAX_SPHERES 8
+#define MAX_BLOCKS 6
 #define MAX_BOUNCES 5  // Augmenté pour plus de réalisme
 #define MAX_SAMPLES 8  // Anti-aliasing
 #define PI 3.14159265
@@ -9,6 +10,7 @@
 #define MAT_METALLIC 1
 #define MAT_GLASS 2
 #define MAT_EMISSIVE 3
+#define MAT_MIRROR 4
 
 
 // Structure pour les matériaux, alignée sur vec4 pour la compatibilité avec des uniformes
@@ -24,6 +26,12 @@ struct Material {
 uniform vec4 spheres[MAX_SPHERES];     // xyz = position, w = rayon
 uniform Material materials[MAX_SPHERES]; // Matériaux des sphères
 uniform int sphereCount;
+
+uniform vec3 blocks[MAX_BLOCKS]; // Positions des blocs (pour les murs)
+uniform vec3 blockSizes[MAX_BLOCKS]; // Tailles des blocs
+uniform Material materials_block[MAX_BLOCKS]; // Matériaux des murs
+uniform int blockCount;
+
 uniform vec3 lightPos;
 uniform vec3 lightColor;
 uniform float lightIntensity;
@@ -168,6 +176,40 @@ bool intersectSphere(vec3 ro, vec3 rd, vec4 sphere, out float t, out vec3 n) {
     return true;
 }
 
+// Fonction d'intersection pour les boîtes alignées sur les axes (AABB)
+bool intersectBox(vec3 ro, vec3 rd, vec3 boxMin, vec3 boxMax, out float t, out vec3 n) {
+    vec3 invDir = 1.0 / rd;
+    vec3 t0s = (boxMin - ro) * invDir;
+    vec3 t1s = (boxMax - ro) * invDir;
+    
+    vec3 tsmaller = min(t0s, t1s);
+    vec3 tbigger = max(t0s, t1s);
+    
+    float tmin = max(max(tsmaller.x, tsmaller.y), tsmaller.z);
+    float tmax = min(min(tbigger.x, tbigger.y), tbigger.z);
+    
+    if (tmin > tmax || tmax < 0.001) return false;
+    
+    t = tmin > 0.001 ? tmin : tmax;
+    if (t < 0.001) return false;
+    
+    // Calculer la normale
+    vec3 hit = ro + rd * t;
+    vec3 center = (boxMin + boxMax) * 0.5;
+    vec3 d = abs(hit - center) - (boxMax - boxMin) * 0.5;
+    
+    // Trouver la face la plus proche
+    if (d.x > d.y && d.x > d.z) {
+        n = vec3(sign(hit.x - center.x), 0.0, 0.0);
+    } else if (d.y > d.z) {
+        n = vec3(0.0, sign(hit.y - center.y), 0.0);
+    } else {
+        n = vec3(0.0, 0.0, sign(hit.z - center.z));
+    }
+    
+    return true;
+}
+
 // Fonction auxiliaire pour calculer l'éclairage direct
 vec3 directLight(vec3 p, vec3 n, vec3 viewDir, int matType, vec3 albedo, float roughness, float dist) {
     vec3 toLight = normalize(lightPos - p);
@@ -185,6 +227,25 @@ vec3 directLight(vec3 p, vec3 n, vec3 viewDir, int matType, vec3 albedo, float r
             }
         }
     }
+
+    // Vérifier les ombres avec les murs
+    if (!occluded) {
+        for (int i = 0; i < blockCount; ++i) {
+            float t;
+            vec3 tmp;
+            vec3 halfSize = blockSizes[i] * 0.5;
+            vec3 blockMin = blocks[i] - halfSize;
+            vec3 blockMax = blocks[i] + halfSize;
+
+            if (intersectBox(p + n * 0.001, toLight, blockMin, blockMax, t, tmp)) {
+                if (t < distToLight) {
+                    occluded = true;
+                    break;
+                }
+            }
+        }
+    }
+    
     
     if (occluded) return vec3(0.0);
     
@@ -213,6 +274,13 @@ vec3 directLight(vec3 p, vec3 n, vec3 viewDir, int matType, vec3 albedo, float r
     }
     else if (matType == MAT_GLASS) {
         // Pour le verre on inclut principalement la composante spéculaire
+        vec3 reflectDir = reflect(-toLight, n);
+        float spec = pow(max(dot(viewDir, reflectDir), 0.0), (1.0 - roughness) * 128.0 + 1.0);
+        
+        lightContrib = lightColor * spec * (1.0 - roughness) * attenuation;
+    }
+    else if (matType == MAT_MIRROR) {
+        // Pour les miroirs, on utilise la réflexion
         vec3 reflectDir = reflect(-toLight, n);
         float spec = pow(max(dot(viewDir, reflectDir), 0.0), (1.0 - roughness) * 128.0 + 1.0);
         
@@ -286,6 +354,11 @@ vec3 sampleDirectLight(vec3 p, vec3 n, vec3 viewDir, Material mat, float seed) {
                     float spec = pow(max(dot(viewDir, reflectDir), 0.0), (1.0 - mat.roughness) * 128.0 + 1.0);
                     brdf = vec3(spec * (1.0 - mat.roughness)) / PI;
                 }
+                else if (mat.type == MAT_MIRROR) {
+                    vec3 reflectDir = reflect(-toLight, n);
+                    float spec = pow(max(dot(viewDir, reflectDir), 0.0), (1.0 - mat.roughness) * 128.0 + 1.0);
+                    brdf = vec3(spec * (1.0 - mat.roughness)) / PI;
+                }
                 
                 // Ajout de la contribution lumineuse
                 contrib += brdf * materials[i].albedo * cosLight * solidAngle * lightIntensity;
@@ -303,6 +376,7 @@ vec3 trace(vec3 ro, vec3 rd, float seed) {
     for (int bounce = 0; bounce < MAX_BOUNCES; ++bounce) {
         float minT = 1e9;
         int hitIdx = -1;
+        int hitType = 0; // 0 = sphère, 1 = mur
         vec3 n, hit;
         
         // Trouver l'intersection la plus proche
@@ -315,6 +389,26 @@ vec3 trace(vec3 ro, vec3 rd, float seed) {
                     hit = ro + rd * t;
                     n = ni;
                     hitIdx = i;
+                    hitType = 0;
+                }
+            }
+        }
+
+        // Trouver l'intersection la plus proche avec les murs
+        for (int i = 0; i < blockCount; ++i) {
+            float t;
+            vec3 ni;
+            vec3 halfSize = blockSizes[i] * 0.5;
+            vec3 blockMin = blocks[i] - halfSize;
+            vec3 blockMax = blocks[i] + halfSize;
+
+            if (intersectBox(ro, rd, blockMin, blockMax, t, ni)) {
+                if (t < minT) {
+                    minT = t;
+                    hit = ro + rd * t;
+                    n = ni;
+                    hitIdx = i;
+                    hitType = 1;
                 }
             }
         }
@@ -329,18 +423,22 @@ vec3 trace(vec3 ro, vec3 rd, float seed) {
         }
 
         // Après avoir trouvé l'intersection:
-        if (hitIdx != -1) {
-            Material mat = materials[hitIdx];
-            
-            // Si on touche une source émissive, ajouter sa contribution et terminer
-            if (mat.type == MAT_EMISSIVE) {
-                col += throughput * mat.albedo * lightIntensity;
-                break;
-            }
-            
-            // Ajout de l'échantillonnage direct de la lumière (NEE)
-            vec3 directLight = sampleDirectLight(hit, n, -rd, mat, seed + float(bounce) * 1.618);
-            col += throughput * directLight;
+        Material mat;
+        if (hitType == 0) {
+            mat = materials[hitIdx];
+        } else {
+            mat = materials_block[hitIdx];
+        }
+        
+        // Si on touche une source émissive, ajouter sa contribution et terminer
+        if (mat.type == MAT_EMISSIVE) {
+            col += throughput * mat.albedo * lightIntensity;
+            break;
+        }
+        
+        // Ajout de l'échantillonnage direct de la lumière (NEE)
+        vec3 directLight = sampleDirectLight(hit, n, -rd, mat, seed + float(bounce) * 1.618);
+        col += throughput * directLight;
         
         //// Récupérer les propriétés du matériau
         //Material mat = materials[hitIdx];
@@ -379,17 +477,21 @@ vec3 trace(vec3 ro, vec3 rd, float seed) {
             throughput *= mix(absorption, vec3(1.0), reflChance);
 
         }
+        else if (mat.type == MAT_MIRROR) {
+            // Miroir: réflexion
+            rd = reflect_custom(rd, n, mat.roughness, hit, seed + float(bounce) * 1.73205);
+            ro = hit + n * 0.001;
+            throughput *= mat.albedo;
         }
+        
 
         
         // Roulette russe pour terminer prématurément les chemins à faible contribution
         if (bounce > 2) {
-    float p = max(throughput.r, max(throughput.g, throughput.b));
-    if (random(hit, seed + bounce * 0.77) > p) break;
-    throughput /= p;
-}
-
-
+            float p = max(throughput.r, max(throughput.g, throughput.b));
+            if (random(hit, seed + bounce * 0.77) > p) break;
+            throughput /= p;
+        }
     }
     
     return col;

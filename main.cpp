@@ -28,12 +28,19 @@ float distance_cam = 5.0f;
 bool isRotating = false;
 
 #define MAX_SPHERES 8
+#define MAX_BLOCKS 6
 
 // Structure pour les sphères
 typedef struct {
     Vector3 position;
     float radius;
 } Sphere;
+
+//structure pour les blocs (murs)
+typedef struct {
+    Vector3 position;
+    Vector3 size; // Taille du bloc (largeur, hauteur, profondeur)
+} Block;
 
 // Structure pour les matériaux
 typedef struct {
@@ -58,16 +65,43 @@ Sphere spheres[MAX_SPHERES] = {
 };
 
 // Matériaux correspondants
+//int type;       // Type de matériau
+//float roughness; // Rugosité (métal, verre)
+//float ior;      // Indice de réfraction (verre)
+//float padding;  // Padding pour l'alignement
+//vec3 albedo;    // Couleur de base
+//float padding2; // Padding supplémentaire
+
 Material2 materials[MAX_SPHERES] = {
-    {0, 0.2f, 1.0f, 0.0f, {0.9f, 0.3f, 0.3f}, 0.0f},    // Rouge diffus
+    {4, 0.0f, 1.0f, 0.0f, {1.0f, 1.0f, 1.0f}, 0.0f},    // Balle miroir
     {1, 0.1f, 1.0f, 0.0f, {0.8f, 0.8f, 0.9f}, 0.0f},    // Métal bleuté
     {2, 0.0f, 1.5f, 0.0f, {0.9f, 0.9f, 0.9f}, 0.0f},    // Verre
     {0, 0.5f, 1.0f, 0.0f, {0.8f, 0.8f, 0.8f}, 0.0f},    // Sol gris diffus
-    {0, 0.3f, 1.0f, 0.0f, {0.3f, 0.9f, 0.3f}, 0.0f},    // Vert diffus
+    {0, 0.2f, 1.0f, 0.0f, {0.9f, 0.3f, 0.3f}, 0.0f},    // Rouge diffus
     {1, 0.2f, 1.0f, 0.0f, {0.9f, 0.6f, 0.2f}, 0.0f},    // Métal doré
     {2, 0.1f, 1.3f, 0.0f, {0.3f, 0.7f, 0.9f}, 0.0f},    // Verre bleuté
     {3, 0.0f, 1.0f, 0.0f, {0.9f, 0.9f, 0.0f}, 0.0f}     // Jaune diffus
 };
+
+// Dans main.cpp, ajustez la définition des murs selon vos besoins
+Block blocks[MAX_BLOCKS] = {
+    {{0.0f, -1.0f, 0.0f}, {20.0f, 0.1f, 20.0f}},  // Sol
+    {{0.0f, 10.0f, 0.0f}, {20.0f, 0.1f, 20.0f}},  // Plafond
+    {{-10.0f, 0.0f, 0.0f}, {0.1f, 20.0f, 20.0f}}, // Mur gauche
+    {{10.0f, 0.0f, 0.0f}, {0.1f, 20.0f, 20.0f}},  // Mur droit
+    {{0.0f, 0.0f, -10.0f}, {20.0f, 20.0f, 0.1f}}, // Mur arrière
+    {{0.0f, 0.0f, 10.0f}, {20.0f, 20.0f, 0.1f}}   // Mur avant
+};
+
+Material2 materials_block[MAX_BLOCKS] = {
+    {1, 0.1f, 1.0f, 0.0f, {0.2f, 0.2f, 0.225f}, 0.0f}, // Mur gauche gris
+    {1, 0.1f, 1.0f, 0.0f, {0.2f, 0.2f, 0.225f}, 0.0f}, // Mur droit gris
+    {1, 0.1f, 1.0f, 0.0f, {0.2f, 0.2f, 0.225f}, 0.0f}, // Mur arrière gris
+    {1, 0.1f, 1.0f, 0.0f, {0.2f, 0.2f, 0.225f}, 0.0f}, // Mur avant gris
+    {1, 0.1f, 1.0f, 0.0f, {0.2f, 0.2f, 0.225f}, 0.0f}, // Mur gauche avant gris
+    {1, 0.1f, 1.0f, 0.0f, {0.2f, 0.2f, 0.225f}, 0.0f}  // Mur droit avant gris
+};
+
 
 // Position de la lumière
 Vector3 lightPos = {5.0f, 10.0f, -2.0f};
@@ -116,11 +150,19 @@ int main(void) {
     int lightPosLoc = GetShaderLocation(shader, "lightPos");
     int lightColorLoc = GetShaderLocation(shader, "lightColor");
     int lightIntensityLoc = GetShaderLocation(shader, "lightIntensity");
+    //pareil pour les blocs de murs
+    int blocksLoc = GetShaderLocation(shader, "blocks");
+    int materialsBlockLoc = GetShaderLocation(shader, "materials_block");
+    int blockCountLoc = GetShaderLocation(shader, "blockCount");
     
     // Passage du nombre de sphères au shader
     int sphereCount = MAX_SPHERES;
     SetShaderValue(shader, sphereCountLoc, &sphereCount, SHADER_UNIFORM_INT);
     
+    // Passage du nombre de blocs au shader
+    int blockCount = MAX_BLOCKS;
+    SetShaderValue(shader, blockCountLoc, &blockCount, SHADER_UNIFORM_INT);
+
     float runTime = 0.0f;
     
     DisableCursor();  // Limite le curseur à l'intérieur de la fenêtre
@@ -186,6 +228,31 @@ int main(void) {
         if (IsKeyDown(KEY_K)) lightPos.x += 0.2f;
         if (IsKeyDown(KEY_Y)) lightIntensity -= 0.2f;
         if (IsKeyDown(KEY_I)) lightIntensity += 0.2f;
+        // Variable pour suivre si la touche R est pressée
+        static bool isColorCycling = false;
+
+        // Vérifier si la touche R est pressée
+        if (IsKeyPressed(KEY_R)) {
+            isColorCycling = !isColorCycling;  // Activer/désactiver le cycle de couleurs
+        }
+
+        // Si le cycle de couleurs est actif, modifier les couleurs
+        if (isColorCycling) {
+            // Cycle de couleurs pour la première sphère (miroir)
+            //materials[0].albedo.x = 0.5f + 0.5f * sinf(runTime * 1.1f);          // Rouge
+            //materials[0].albedo.y = 0.5f + 0.5f * sinf(runTime * 0.7f + 2.0f);   // Vert
+            //materials[0].albedo.z = 0.5f + 0.5f * sinf(runTime * 0.9f + 4.0f);   // Bleu
+            
+            // Cycle de couleurs pour la sphère émissive (index 7)
+            materials[7].albedo.x = 0.5f + 0.5f * sinf(runTime * 0.5f + 1.0f);   // Rouge
+            materials[7].albedo.y = 0.5f + 0.5f * sinf(runTime * 0.8f + 3.0f);   // Vert
+            materials[7].albedo.z = 0.5f + 0.5f * sinf(runTime * 0.6f + 5.0f);   // Bleu
+            
+            // Synchroniser la couleur de la lumière avec la sphère émissive
+            lightColor.x = materials[7].albedo.x;
+            lightColor.y = materials[7].albedo.y;
+            lightColor.z = materials[7].albedo.z;
+        }
         // Make light intensity oscillate between 0 and 2
         //lightIntensity = 1.0f + sinf(runTime * 1.5f);
         // Ajustement de l'intensité de la lumière
@@ -224,6 +291,35 @@ int main(void) {
                           &materials[i].ior, SHADER_UNIFORM_FLOAT);
             SetShaderValue(shader, GetShaderLocation(shader, TextFormat("materials[%d].albedo", i)), 
                           &materials[i].albedo, SHADER_UNIFORM_VEC3);
+        }
+        // Envoi des données des blocs et de leurs matériaux au shader
+        for (int i = 0; i < MAX_BLOCKS; i++) {
+            // Format vec4 pour chaque bloc (position + taille)
+            float blockPos[3] = {
+        blocks[i].position.x, 
+        blocks[i].position.y, 
+        blocks[i].position.z
+    };
+    SetShaderValue(shader, GetShaderLocation(shader, TextFormat("blocks[%d]", i)),
+                   blockPos, SHADER_UNIFORM_VEC3);
+    
+    // Transmettez la taille séparément
+    float blockSize[3] = {
+        blocks[i].size.x,
+        blocks[i].size.y,
+        blocks[i].size.z
+    };
+    SetShaderValue(shader, GetShaderLocation(shader, TextFormat("blockSizes[%d]", i)),
+                   blockSize, SHADER_UNIFORM_VEC3);
+            // Transmission du matériau du bloc
+            SetShaderValue(shader, GetShaderLocation(shader, TextFormat("materials_block[%d].type", i)),
+                          &materials_block[i].type, SHADER_UNIFORM_INT);
+            SetShaderValue(shader, GetShaderLocation(shader, TextFormat("materials_block[%d].roughness", i)),
+                            &materials_block[i].roughness, SHADER_UNIFORM_FLOAT);
+            SetShaderValue(shader, GetShaderLocation(shader, TextFormat("materials_block[%d].ior", i)),
+                            &materials_block[i].ior, SHADER_UNIFORM_FLOAT);
+            SetShaderValue(shader, GetShaderLocation(shader, TextFormat("materials_block[%d].albedo", i)),
+                            &materials_block[i].albedo, SHADER_UNIFORM_VEC3);
         }
         
         // Mise à jour de la position de la lumière
